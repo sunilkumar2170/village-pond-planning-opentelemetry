@@ -1,169 +1,168 @@
-# Pond Catchment Analysis API
+# AI-Based Village Pond Planning System with OpenTelemetry Observability
 
-A robust backend API that analyzes a contour map (in **KML** or **KMZ** format), builds a terrain digital elevation model (DEM), identifies the optimal pond location/region, delineates its contributing catchment area, and estimates the expected water volume it can store — built for automated rural/village water conservation planning.
+[![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-Tracing%20%7C%20Metrics%20%7C%20Logs-blue.svg)](https://opentelemetry.io/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115.0-green.svg)](https://fastapi.tiangolo.com/)
+[![Jaeger](https://img.shields.io/badge/Jaeger-All--in--One%20v1.60-orange.svg)](https://www.jaegertracing.io/)
+[![Prometheus](https://img.shields.io/badge/Prometheus-Metrics%20Format-red.svg)](https://prometheus.io/)
+[![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
+
+**Author:** Sunil Kumar  
+**Roll Number:** 12342170  
+**Course:** CSD Lab 8 — OpenTelemetry Observability Implementation  
+**Affiliation:** Indian Institute of Technology Bhilai (IIT Bhilai)  
 
 ---
 
-## 🚀 API Endpoints
+## 📌 Project Overview
 
-### 1. Primary Analysis Route
-- **`POST /analyzeContour`**
-- **`POST /findCatchment`** *(alias)*
+The **Village Pond Planning System** is a geospatial civil-engineering platform developed to assist rural planners in identifying optimal rainwater harvesting locations and calculating contributing catchment volumes.
 
-#### Request Format
-`multipart/form-data`
+In this project, the monolithic geospatial pipeline was enhanced with **full three-pillar observability (Traces, Metrics, Logs)** using the official **OpenTelemetry (OTel) Python SDK**, **Jaeger**, and **Prometheus**.
 
-| Field | Type | Description |
-|---|---|---|
-| `contour_map` | File | **(Primary)** KML or KMZ contour map file |
-| `file` | File | *(Alternative / Fallback)* KML or KMZ file |
+---
 
-#### Sample Request (cURL)
+## 🏗️ Observability Architecture
+
+```
+                                  [ Client Request ]
+                                (POST /analyzeContour)
+                                          │
+                                          ▼
+                     ┌─────────────────────────────────────────┐
+                     │         FastAPI Backend Engine          │
+                     │  (Root Span: process_contour_file)      │
+                     └────────────────────┬────────────────────┘
+                                          │
+       ┌──────────────────────────────────┴──────────────────────────────────┐
+       │                                                                     │
+       ▼ (Sequential Child Spans)                                            ▼ (Telemetry Engine)
+  1. kml.parse_contours                                             ┌─────────────────┐
+  2. terrain.boundary_filtering                                     │ OpenTelemetry   │
+  3. terrain.build_elevation_grid                                   │ Python SDK      │
+  4. pond.pick_optimal_location                                     │ - TracerProvider│
+  5. hydrology.compute_d8_flow_and_catchment                        │ - BatchProcessor│
+  6. external.fetch_annual_rainfall                                 │ - OTelFormatter │
+  7. hydrology.estimate_water_volume_scs_cn                         └────────┬────────┘
+                                                                             │
+             ┌───────────────────────┬───────────────────────┬───────────────┴───────────────┐
+             ▼                       ▼                       ▼                               ▼
+    [ Jaeger Collector ]    [ Prometheus Metrics ]   [ Trace-Correlated Logs ]    [ In-Memory Dashboard ]
+     OTLP gRPC (:4317)       Endpoint: /metrics       TraceID & SpanID injected    Buffer: /telemetry/dashboard
+```
+
+---
+
+## 🔍 Key Observability Features
+
+### 1. Granular Domain Tracing (7 Child Spans)
+Monolithic request execution is broken into 7 sequential domain child spans with semantic domain attributes:
+* `kml.parse_contours`: Geometry vertices count, contour levels parsed.
+* `terrain.boundary_filtering`: Shapely polygon containment validation.
+* `terrain.build_elevation_grid`: SciPy Delaunay triangulation & DEM interpolation bounds.
+* `pond.pick_optimal_location`: Topographic local depression coordinates (`lat`, `lon`, `elevation_m`).
+* `hydrology.compute_d8_flow_and_catchment`: D8 steepest-slope routing & BFS catchment delineation (`area_hectares`, `cell_count`).
+* `external.fetch_annual_rainfall`: External Open-Meteo meteorological API latency and precipitation retrieval.
+* `hydrology.estimate_water_volume_scs_cn`: SCS Curve Number runoff depth ($mm$) and expected harvestable volume ($m^3$).
+
+### 2. Standardized Prometheus Metrics (`/metrics`)
+* `pond_analysis_requests_total`: Counter tracking total processed requests labeled by `input_type` (`kml_file` vs `freehand_boundary`) and `status` (`success` vs `error`).
+* `pond_analysis_duration_seconds`: Histogram measuring execution latency distribution ($0.05s$ to $10s$).
+* `catchment_area_hectares`: Histogram tracking delineated watershed area distribution.
+* `expected_water_volume_cubic_meters`: KPI gauge aggregating total calculated water storage potential.
+* `active_pond_analysis_requests`: In-flight gauge monitoring concurrent computations.
+
+### 3. Deterministic Trace-Log Correlation
+A custom `OTelLogFormatter` dynamically inspects the thread-local span context via `trace.get_current_span().get_span_context()`, injecting the 32-character hexadecimal `trace_id` and 16-character `span_id` directly into each log record:
+```text
+2026-10-16 19:42:15,102 [INFO] [trace_id=90a2543b0f0b5f1ab3928c30fe1a6da5 span_id=314b9c1d0a5e8f22] pond.pick_optimal_location: Optimal pond located at (21.2499, 81.2899) with elevation 267.0m
+```
+
+### 4. Custom Live In-Memory Telemetry Dashboard
+An embedded real-time telemetry dashboard accessible at `/telemetry/dashboard` providing:
+* Active spans count, processor status, and recent trace ring buffer.
+* Live microsecond timing waterfall view.
+* Instant attribute inspection without requiring external UI tools.
+
+---
+
+## 🌐 Remote Evaluation Deployment (`10.1.75.53`)
+
+The stack is deployed on the IIT Bhilai evaluation server with the following endpoints:
+
+| Service / Endpoint | Port / Access | Status | Description |
+|---|---|---|---|
+| **Backend REST API** | `http://10.1.75.53:3213/` | `200 OK` | Main API service metadata & endpoints |
+| **Health Check** | `http://10.1.75.53:3213/health` | `200 OK` | `{"status":"online", "telemetry":"active"}` |
+| **Prometheus Metrics** | `http://10.1.75.53:3213/metrics` | `200 OK` | Prometheus scrape endpoint |
+| **Live OTel Dashboard** | `http://10.1.75.53:3213/telemetry/dashboard` | `200 OK` | Real-time in-memory spans UI |
+| **Trace Correlated Logs**| `http://10.1.75.53:3213/telemetry/logs` | `200 OK` | Colorized log viewer with TraceID |
+| **Frontend Web Interface** | `http://10.1.75.53:4213/` | `200 OK` | Production React map interface |
+| **SSH Terminal Access** | `ssh -p 6213 student@10.1.75.53` | `Active` | Remote container shell (Password authenticated) |
+
+---
+
+## 🚀 Local Installation & Quick Start
+
+### 1. Clone Repository & Setup Virtual Environment
 ```bash
-curl -X POST "http://localhost:8000/analyzeContour" \
+git clone https://github.com/sunilkumar2170/village-pond-planning-opentelemetry.git
+cd village-pond-planning-opentelemetry
+python -m venv venv
+# Windows:
+venv\Scripts\activate
+# Linux/macOS:
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 2. Start Jaeger All-in-One Daemon
+Download and run the Jaeger binary (or via Docker):
+```bash
+# Docker:
+docker run -d --name jaeger \
+  -p 16686:16686 \
+  -p 4317:4317 \
+  -p 4318:4318 \
+  jaegertracing/all-in-one:1.60
+```
+
+### 3. Launch the Backend Service
+```bash
+python -m uvicorn main:app --host 0.0.0.0 --port 3000 --reload
+```
+
+### 4. Trigger Analysis & Inspect Telemetry
+```bash
+curl -X POST "http://localhost:3000/analyzeContour" \
   -F "contour_map=@contours_1m.kml"
 ```
-
-#### Sample Response (`application/json`)
-```json
-{
-  "filename": "contours_1m.kml",
-  "pond_location": {
-    "longitude": 81.28897840326482,
-    "latitude": 21.24486206234389
-  },
-  "pond_elevation_m": 268.0,
-  "catchment_area_hectares": 4.261316548620606,
-  "total_catchment_cells": 49,
-  "catchment_polygon": [
-    [81.28913619301537, 21.243782143985634],
-    [81.28913619301537, 21.244022125843024],
-    "... additional [longitude, latitude] boundary points ..."
-  ],
-  "rainfall_used_mm": 1382.66,
-  "curve_number_used": 60.0,
-  "runoff_depth_mm": 1198.3476056309169,
-  "expected_water_volume_cubic_m": 51065.384828749055
-}
-```
-
-#### Response Field Reference
-
-| Field | Description |
-|---|---|
-| `pond_location` | Recommended pond coordinates (the lowest natural depression in the terrain) |
-| `pond_elevation_m` | Elevation of the recommended pond site (metres) |
-| `catchment_area_hectares` | Total area contributing surface runoff to the pond site |
-| `total_catchment_cells` | Number of DEM grid cells included in the catchment |
-| `catchment_polygon` | Boundary of the catchment area as a list of `[longitude, latitude]` points, ready for map overlay (GeoJSON-style ring) |
-| `rainfall_used_mm` | Annual rainfall (mm) used in the runoff calculation, fetched live for the site's coordinates |
-| `curve_number_used` | SCS Curve Number applied (reflects soil/land-use infiltration characteristics) |
-| `runoff_depth_mm` | Estimated runoff depth from the SCS-CN method |
-| `expected_water_volume_cubic_m` | Estimated total water volume (m³) the pond's catchment can be expected to yield annually |
-
-### 2. Health & Status Route
-- **`GET /`** — server status and available endpoints.
-- **`GET /analyzeContour`** — friendly info message if the analysis endpoint is opened directly in a browser instead of called with `POST`.
+* **Jaeger Traces:** Open `http://localhost:16686` and search for service `village-pond-planning-service`.
+* **Prometheus Metrics:** Open `http://localhost:3000/metrics`.
+* **In-Memory Dashboard:** Open `http://localhost:3000/telemetry/dashboard`.
+* **Live Correlated Logs:** Open `http://localhost:3000/telemetry/logs`.
 
 ---
 
-## 🛠️ Architectural Approach & Hydrological Modeling
-
-1. **KML / KMZ Ingestion & Parsing (`kml_parser.py`)**
-   - Supports both uncompressed `.kml` and compressed `.kmz` zip archives.
-   - Robust multi-attribute elevation extraction (reads elevation from `<name>`, `<ExtendedData>`, `<description>`, or 3D coordinate tuples `(lon, lat, elev)`).
-   - Zero hardcoding of geographic coordinates — fully generalizes to any valid contour map.
-
-2. **Surface Interpolation & Pseudo-DEM (`terrain_processor.py`)**
-   - Flattens scattered contour polyline vertices into continuous geospatial coordinates (x, y, z).
-   - Constructs a regular elevation grid (DEM) using SciPy's 2D linear barycentric interpolation (`scipy.interpolate.griddata`).
-
-3. **Optimal Pond Site Selection (`catchment_analyzer.py`)**
-   - Uses an 8-neighborhood local minimum detector to locate natural terrain depressions/sinks.
-   - Selects the deepest, most viable depression as the primary pond outlet point.
-
-4. **D8 Flow Direction & Catchment Delineation (`catchment_analyzer.py`)**
-   - Computes steepest-descent flow vectors for every DEM cell using standard D8 hydrological flow modeling.
-   - Performs a reverse Breadth-First Search (BFS) starting from the pond sink to trace all contributing upstream cells.
-
-5. **Geodesic Catchment Area Estimation (`catchment_analyzer.py`)**
-   - Computes cell dimensions in metres using latitude-corrected geodesic scaling (1° lat ≈ 111 km, 1° lon ≈ 111 km × cos(latitude)).
-   - Calculates total contributing area in hectares (1 ha = 10,000 m²).
-
-6. **Catchment Boundary Polygon (`catchment_analyzer.py`)**
-   - Converts each contributing DEM cell into a small square polygon and merges them (via Shapely's `unary_union`) into a single catchment boundary.
-   - Returns the boundary as an ordered list of `[longitude, latitude]` coordinates, directly consumable by mapping libraries (e.g. Leaflet) for visual overlay.
-
-7. **Live Rainfall Retrieval (`rainfall_service.py`)**
-   - Fetches the past year's rainfall for the recommended pond's exact coordinates from the **Open-Meteo Historical Weather API**, with automatic fallback to the **NASA POWER API** if the primary source is unavailable or rate-limited.
-   - Falls back to a fixed default value only if both live sources fail, so the pipeline never breaks due to a network issue.
-   - Caches results in memory per location to minimize repeated external API calls.
-
-8. **Runoff & Water Volume Estimation (`catchment_analyzer.py`)**
-   - Applies the **SCS Curve Number (CN) method**, a standard hydrological model, to estimate how much of the rainfall over the catchment becomes actual surface runoff:
-     - `S = (25400 / CN) − 254` (potential maximum retention, mm)
-     - `Q = (P − 0.2S)² / (P + 0.8S)` (runoff depth, mm)
-   - Converts the runoff depth into a total expected water volume (m³) using the catchment area.
-
----
-
-## 📁 Project Structure
+## 📂 Core Repository Structure
 
 ```
-pond-catchment-api/
-├── main.py                 # FastAPI application, route handlers, and request orchestration
-├── kml_parser.py            # KML & KMZ parser with robust elevation extraction
-├── terrain_processor.py     # Grid interpolation & DEM construction
-├── catchment_analyzer.py    # Local minima detection, D8 flow routing, BFS catchment tracing,
-│                             # catchment polygon generation, and SCS-CN water volume estimation
-├── rainfall_service.py      # Live rainfall retrieval (Open-Meteo + NASA POWER fallback, cached)
-├── models.py                # Pydantic response models
-├── requirements.txt         # Dependencies
-├── contours_1m.kml          # Sample contour map for testing
-└── README.md                # Documentation & report
+├── main.py                     # FastAPI backend with 7 OTel child spans & metrics
+├── telemetry.py                # OpenTelemetry setup (TracerProvider, Exporters, Formatter)
+├── models.py                   # Pydantic schemas for requests and responses
+├── terrain_processor.py        # Delaunay triangulation & elevation grid generation
+├── catchment_analyzer.py       # D8 flow routing, local minima & BFS catchment tracing
+├── kml_parser.py               # Spatial KML/KMZ geometry parser
+├── rainfall_service.py         # Open-Meteo & NASA POWER meteorological yield retrieval
+├── contours_1m.kml             # Sample 1-meter elevation contour dataset
+├── requirements.txt            # Python dependencies (FastAPI, OTel SDK, Prometheus)
+├── main.tex                    # LaTeX source code for the lab evaluation report
+├── OPENTELEMETRY_REPORT.tex    # Standalone mirror of the LaTeX report
+├── README.md                   # Technical documentation and setup guide
+└── pondplan/                   # React + TypeScript frontend web interface
 ```
 
 ---
 
-## 🏃 Running Locally
+## 📜 Academic Integrity & AI Usage Declaration
 
-1. **Create and activate a virtual environment:**
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate        # Windows: venv\Scripts\Activate.ps1
-   ```
-
-2. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Start the FastAPI server:**
-   ```bash
-   uvicorn main:app --reload --host 0.0.0.0 --port 8000
-   ```
-
-4. **Interactive Swagger API Docs:**
-   Open `http://localhost:8000/docs` in your browser.
-
----
-
-## 🧪 Testing
-
-The API was validated with:
-- The standard sample contour map (`contours_1m.kml`).
-- Compressed KMZ archives (`.kmz`).
-- Synthetic contour maps with alternative coordinate formats and elevation levels.
-- Live rainfall retrieval under real network conditions, including automatic fallback behaviour when the primary rainfall API returned `429 Too Many Requests`.
-
----
-
-## 🔮 Planned / In Progress
-
-- React + Leaflet frontend for map-based area selection and result visualization (catchment polygon and pond marker overlay).
-- Deployment behind a load-balanced, multi-node backend (`load_balancer.py`) for stress resilience.
-
----
-
-## 👨‍💻 Author
-Sunil Kumar — B.Tech CSE, IIT Bhilai
+> *AI was used to understand OpenTelemetry concepts, assist with code implementation and debugging, and improve the technical documentation.*

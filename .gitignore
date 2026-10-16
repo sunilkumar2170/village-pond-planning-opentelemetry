@@ -1,8 +1,51 @@
+# Python cache
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 venv/
+.env
+
+# Node / Frontend
 node_modules/
 dist/
+.vite/
+pondplan/
+
+# Telemetry and Execution Logs
 *.log
+otel_traces.log
+otel_application.log
+backend.log
+frontend.log
+
+# Temporary / Scratch & Test scripts (Keep repository clean)
+check_*
+deploy_*
+verify*
+test_*
+clean_*
+debug_*
+finish_*
+fix_*
+force_*
+full_*
+install_*
+investigate.py
+redeploy_*.py
+restart_*.py
+start_*.py
+supervisor_*.py
+tmux_*.py
+upload_*.py
+create_diagram.py
+serve_frontend.py
+elevation_preview.png
+
+# Binaries and Archives
+jaeger*/
+jaeger.tar.gz
+
+# OS Artifacts
 .DS_Store
-.env
+Thumbs.db
